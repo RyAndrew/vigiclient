@@ -1,6 +1,6 @@
 "use strict";
 
-const CONF = require("/boot/robot.json");
+const CONF = require("./robot.json");
 
 const TRAME = require("./trame.js");
 
@@ -8,33 +8,27 @@ const PORTROBOTS = 86;
 const PORTTCPVIDEO = 8003;
 const PORTTCPAUDIO = 8004;
 
-const FICHIERLOG = "/var/log/vigiclient.log";
+const FICHIERLOG = "./vigiclient.log";
 
 const INTERFACEWIFI = "wlan0";
 const FICHIERSTATS = "/proc/net/wireless";
 const STATSRATE = 250;
 
-const PROCESSDIFFUSION = "/usr/local/vigiclient/processdiffusion";
-const PROCESSDIFFAUDIO = "/usr/local/vigiclient/processdiffaudio";
+const PROCESSDIFFUSION = "./processdiffusion";
+const PROCESSDIFFAUDIO = "./processdiffaudio";
 
-const CMDDIFFUSION = [
- PROCESSDIFFUSION,
- " SOURCEVIDEO",
+const CMDDIFFUSION = [ // 960x720 //  -flags +global_header
+ "ffmpeg -loglevel panic -nostats -hide_banner",
+ " -f v4l2 -video_size 640x480 -framerate 15 -i /dev/video0",
+ " -c:v h264_omx -profile:v baseline -level:v 4.0 -b:v 1500k -an -global_header", 
+ " -f rawvideo -",
  " | /bin/nc 127.0.0.1 PORTTCPVIDEO",
  " -w 2"
 ];
 
 const CMDDIFFAUDIO = [
- PROCESSDIFFAUDIO,
- " -loglevel fatal",
- " -f alsa",
- " -ac 1",
- " -i hw:1,0",
- " -ar 16000",
- " -c:a pcm_s16le",
- " -f s16le",
- " tcp://127.0.0.1:PORTTCPAUDIO"
-];
+ "arecord -D plughw:0 -f S16_LE -r 16000 | nc 127.0.0.1 PORTTCPAUDIO -w 2"
+ ];
 
 const FRAME0 = "$".charCodeAt();
 const FRAME1S = "S".charCodeAt();
@@ -298,23 +292,23 @@ function confVideo(callback) {
 
  trace("Initialisation de la configuration Video4Linux");
 
- exec("v4l2-ctl", V4L2 + " -v width=" + confStatique.WIDTH +
-                            ",height=" + confStatique.HEIGHT +
-                            ",pixelformat=4" +
-                         " -p " + confStatique.FPS +
-                         " -c h264_profile=0" +
-                            ",repeat_sequence_header=1" +
-                            ",rotate=" + confDynamique.ROTATION +
-                            ",video_bitrate=" + confDynamique.BITRATE +
-                            ",brightness=" + confDynamique.LUMINOSITE +
-                            ",contrast=" + confDynamique.CONTRASTE, function(code) {
-  callback(code);
- });
+  exec("v4l2-ctl", V4L2 + " -v width=" + confStatique.WIDTH +
+                             ",height=" + confStatique.HEIGHT +
+                             ",pixelformat=4" +
+                          " -p " + confStatique.FPS +
+                          " -c h264_profile=0" +
+                             ",repeat_sequence_header=1" +
+                             ",rotate=" + confDynamique.ROTATION +
+                             ",video_bitrate=" + confDynamique.BITRATE +
+                             ",brightness=" + confDynamique.LUMINOSITE +
+                             ",contrast=" + confDynamique.CONTRASTE, function(code) {
+   callback(code);
+  });
+ 	//callback(0);
 }
 
 function confDynamiqueVideo() {
  trace("Modification de la configuration Video4Linux");
-
  exec("v4l2-ctl", V4L2 + " -c h264_profile=0" +
                             ",repeat_sequence_header=1" +
                             ",rotate=" + confDynamique.ROTATION +
@@ -327,6 +321,8 @@ function confDynamiqueVideo() {
 function diffusion() {
  trace("Démarrage du flux de diffusion vidéo H.264");
  exec("Diffusion", cmdDiffusion, function(code) {
+ 	console.log('video recording!');
+ 	console.log(cmdDiffusion);
   trace("Arrêt du flux de diffusion vidéo H.264");
  });
 }
@@ -334,6 +330,8 @@ function diffusion() {
 function diffAudio() {
  trace("Démarrage du flux de diffusion audio");
  exec("DiffAudio", cmdDiffAudio, function(code) {
+ 	console.log('audio recording!');
+ 	console.log(cmdDiffAudio);
   trace("Arrêt du flux de diffusion audio");
  });
 }
@@ -659,14 +657,12 @@ setInterval(function() {
 
  if(latencePredictive < LATENCEFINALARME && alarmeLatence) {
   trace("Latence de " + latencePredictive + " ms, retour au débit vidéo configuré");
-  exec("v4l2-ctl", V4L2 + " -c video_bitrate=" + confDynamique.BITRATE, function(code) {
-  });
+  //exec("v4l2-ctl", V4L2 + " -c video_bitrate=" + confDynamique.BITRATE, function(code) { });
   alarmeLatence = false;
  } else if(latencePredictive > LATENCEDEBUTALARME && !alarmeLatence) {
   failSafe();
   trace("Latence de " + latencePredictive + " ms, passage en débit vidéo réduit");
-  exec("v4l2-ctl", V4L2 + " -c video_bitrate=" + BITRATEVIDEOFAIBLE, function(code) {
-  });
+  //exec("v4l2-ctl", V4L2 + " -c video_bitrate=" + BITRATEVIDEOFAIBLE, function(code) { });
   alarmeLatence = true;
  }
 }, TXRATE);
