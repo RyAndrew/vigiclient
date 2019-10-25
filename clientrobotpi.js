@@ -1,6 +1,6 @@
 "use strict";
 
-const CONF = require("./robot.json");
+const CONF = require("/boot/robot.json");
 
 const TRAME = require("./trame.js");
 
@@ -8,14 +8,14 @@ const PORTROBOTS = 86;
 const PORTTCPVIDEO = 8003;
 const PORTTCPAUDIO = 8004;
 
-const FICHIERLOG = "./vigiclient.log";
+const FICHIERLOG = "/var/log/vigiclient.log";
 
 const INTERFACEWIFI = "wlan0";
 const FICHIERSTATS = "/proc/net/wireless";
 const STATSRATE = 250;
 
-const PROCESSDIFFUSION = "./processdiffusion";
-const PROCESSDIFFAUDIO = "./processdiffaudio";
+const PROCESSDIFFUSION = "/usr/local/vigiclient/processdiffusion";
+const PROCESSDIFFAUDIO = "/usr/local/vigiclient/processdiffaudio";
 
 const CMDDIFFUSION = [ // 960x720 //  -flags +global_header
  "ffmpeg -loglevel panic -nostats -hide_banner",
@@ -27,8 +27,16 @@ const CMDDIFFUSION = [ // 960x720 //  -flags +global_header
 ];
 
 const CMDDIFFAUDIO = [
- "arecord -D plughw:0 -f S16_LE -r 16000 | nc 127.0.0.1 PORTTCPAUDIO -w 2"
- ];
+ PROCESSDIFFAUDIO,
+ " -loglevel fatal",
+ " -f alsa",
+ " -ac 1",
+ " -i hw:1,0",
+ " -ar 16000",
+ " -c:a pcm_s16le",
+ " -f s16le",
+ " tcp://127.0.0.1:PORTTCPAUDIO"
+];
 
 const FRAME0 = "$".charCodeAt();
 const FRAME1S = "S".charCodeAt();
