@@ -17,10 +17,11 @@ const STATSRATE = 250;
 const PROCESSDIFFUSION = "/usr/local/vigiclient/processdiffusion";
 const PROCESSDIFFAUDIO = "/usr/local/vigiclient/processdiffaudio";
 
+
 const CMDDIFFUSION = [ // 960x720 //  -flags +global_header
  "ffmpeg -loglevel panic -nostats -hide_banner",
  " -f v4l2 -video_size 640x480 -framerate 15 -i /dev/video0",
- " -c:v h264_omx -profile:v baseline -level:v 4.0 -b:v 1500k -an -global_header", 
+ " -c:v h264_omx -profile:v baseline -level:v 4.0 -b:v 1500k -an ", 
  " -f rawvideo -",
  " | /bin/nc 127.0.0.1 PORTTCPVIDEO",
  " -w 2"
@@ -58,6 +59,19 @@ const MAX17043ADDRESS = 0x10;
 const BQ27441ADDRESS = 0x55;
 const GAUGERATE = 250;
 
+const PCA9685ADDRESS = 0x40; // TODO user hardware conf
+const PCA9685FREQUENCY = 50;
+const PCADRIVER_PWMA = 0;
+const PCADRIVER_AIN1 = 1;
+const PCADRIVER_AIN2 = 2;
+const PCADRIVER_PWMB = 5;
+const PCADRIVER_BIN1 = 3;
+const PCADRIVER_BIN2 = 4;
+const PCASERVOCHANNELMAP = { // TODO user hardware conf
+ 0:8,
+ 1:10
+};
+
 const CAPTURESENVEILLERATE = 60000;
 
 const OS = require("os");
@@ -70,6 +84,7 @@ const SPLIT = require("stream-split");
 const HTTP = require("http");
 const GPIO = require("pigpio").Gpio;
 const I2C = require("i2c-bus");
+const PCA9685 = require("pca9685");
 
 const VERSION = Math.trunc(FS.statSync(__filename).mtimeMs);
 const PROCESSTIME = Date.now();
@@ -153,6 +168,17 @@ try {
   }
  }
 }
+
+let pca9685Driver = new PCA9685.Pca9685Driver({
+ i2c: i2c,
+ address: PCA9685ADDRESS,
+ frequency: PCA9685FREQUENCY
+}, function(err) {
+ if(err)
+  trace("Error initializing PCA9685");
+ else
+  trace("PCA9685 initialized");
+});
 
 trace("Démarrage du client");
 
@@ -246,6 +272,9 @@ function debout() {
   });
  }
 
+ for(let i = 0; i < conf.TX.OUTILS.length; i++)
+  oldOutils[i]++;
+
  for(let i = 0; i < 8; i++)
   setGpio(i, tx.interrupteurs[0] >> i & 1 ^ hard.INTERRUPTEURS[i].INV);
 
@@ -272,11 +301,14 @@ function dodo() {
 
   for(let i = 0; i < hard.MOTEURS.length; i++)
    gpioMoteurs[i].servoWrite(map(0, -0x80, 0x80, hard.MOTEURS[i].PWMMIN, hard.MOTEURS[i].PWMMAX));
- } else {
-  // TODO write disable PWM to servo controller
-  for(let i = 0; i < hard.MOTEURS.length; i++) {
-   // TODO write 0 velocity to motor controller
-  }
+ }
+
+ if(hard.PCA9685) {
+  for(let chan in PCASERVOCHANNELMAP)
+   pca9685Driver.channelOff(PCASERVOCHANNELMAP[chan]);
+
+  for(let i = 0; i < hard.MOTEURS.length; i++)
+   pca9685MotorDrive(i, 0);
  }
 
  for(let i = 0; i < 8; i++)
@@ -300,36 +332,38 @@ function confVideo(callback) {
 
  trace("Initialisation de la configuration Video4Linux");
 
-  exec("v4l2-ctl", V4L2 + " -v width=" + confStatique.WIDTH +
-                             ",height=" + confStatique.HEIGHT +
-                             ",pixelformat=4" +
-                          " -p " + confStatique.FPS +
-                          " -c h264_profile=0" +
-                             ",repeat_sequence_header=1" +
-                             ",rotate=" + confDynamique.ROTATION +
-                             ",video_bitrate=" + confDynamique.BITRATE +
-                             ",brightness=" + confDynamique.LUMINOSITE +
-                             ",contrast=" + confDynamique.CONTRASTE, function(code) {
-   callback(code);
-  });
- 	//callback(0);
+ // exec("v4l2-ctl", V4L2 + " -v width=" + confStatique.WIDTH +
+ //                            ",height=" + confStatique.HEIGHT +
+ //                            ",pixelformat=4" +
+ //                         " -p " + confStatique.FPS +
+ //                         " -c h264_profile=0" +
+ //                            ",repeat_sequence_header=1" +
+ //                            ",rotate=" + confDynamique.ROTATION +
+ //                            ",video_bitrate=" + confDynamique.BITRATE +
+ //                            ",brightness=" + confDynamique.LUMINOSITE +
+ //                            ",contrast=" + confDynamique.CONTRASTE, function(code) {
+ //  callback(code);
+ // });
+ callback(0);
 }
 
 function confDynamiqueVideo() {
  trace("Modification de la configuration Video4Linux");
- exec("v4l2-ctl", V4L2 + " -c h264_profile=0" +
-                            ",repeat_sequence_header=1" +
-                            ",rotate=" + confDynamique.ROTATION +
-                            ",video_bitrate=" + confDynamique.BITRATE +
-                            ",brightness=" + confDynamique.LUMINOSITE +
-                            ",contrast=" + confDynamique.CONTRASTE, function(code) {
- });
+
+ // exec("v4l2-ctl", V4L2 + " -c h264_profile=0" +
+ //                            ",repeat_sequence_header=1" +
+ //                            ",rotate=" + confDynamique.ROTATION +
+ //                            ",video_bitrate=" + confDynamique.BITRATE +
+ //                            ",brightness=" + confDynamique.LUMINOSITE +
+ //                            ",contrast=" + confDynamique.CONTRASTE, function(code) {
+ // });
 }
 
 function diffusion() {
  trace("Démarrage du flux de diffusion vidéo H.264");
+
  exec("Diffusion", cmdDiffusion, function(code) {
- 	console.log('video recording!');
+ 	console.log('video recording!');	
  	console.log(cmdDiffusion);
   trace("Arrêt du flux de diffusion vidéo H.264");
  });
@@ -338,7 +372,7 @@ function diffusion() {
 function diffAudio() {
  trace("Démarrage du flux de diffusion audio");
  exec("DiffAudio", cmdDiffAudio, function(code) {
- 	console.log('audio recording!');
+ 	console.log('audio recording!');	
  	console.log(cmdDiffAudio);
   trace("Arrêt du flux de diffusion audio");
  });
@@ -575,9 +609,9 @@ CONF.SERVEURS.forEach(function(serveur) {
 
     if(hard.PIGPIO)
      gpioOutils[i].servoWrite(pwm);
-    else {
-     // TODO write pwm to servo controller
-    }
+
+    if(hard.PCA9685 && PCASERVOCHANNELMAP[i])
+     pca9685Driver.setPulseLength(PCASERVOCHANNELMAP[i], pwm);
    }
   }
 
@@ -605,9 +639,10 @@ CONF.SERVEURS.forEach(function(serveur) {
      pwm = pwmNeutre;
 
     gpioMoteurs[i].servoWrite(pwm);
-   } else {
-    // TODO write moteurs[i] velocity to motor controller
    }
+
+   if(hard.PCA9685)
+    pca9685MotorDrive(i, moteurs[i]);
   }
 
   if(tx.interrupteurs[0] != oldTxInterrupteurs) {
@@ -639,9 +674,46 @@ function setGpio(n, etat) {
    gpioInterrupteurs[n].mode(GPIO.INPUT);
   else
    gpioInterrupteurs[n].digitalWrite(etat);
- } else {
-  // TODO write etat to GPIO controller
  }
+}
+
+function pca9685MotorDrive(motorNum, value) {
+let chIn1;
+let chIn2;
+let chPwm;
+let pwm;
+
+switch(motorNum) {
+ case 0:
+  chIn1 = PCADRIVER_AIN1;
+  chIn2 = PCADRIVER_AIN2;
+  chPwm = PCADRIVER_PWMA;
+  break;
+ case 1:
+  chIn1 = PCADRIVER_BIN1;
+  chIn2 = PCADRIVER_BIN2;
+  chPwm = PCADRIVER_PWMB;
+  break;
+ default:
+  trace("pca9685MotorDrive() invalid motor number");
+  return;
+ }
+
+ if(value < 0) {
+  pca9685Driver.channelOff(chIn1);
+  pca9685Driver.channelOn(chIn2);
+  pwm = value * -1 / 128;
+ } else if(value > 0) {
+  pca9685Driver.channelOn(chIn1);
+  pca9685Driver.channelOff(chIn2);
+  pwm = value / 128;
+ } else {
+  pca9685Driver.channelOff(chIn1);
+  pca9685Driver.channelOff(chIn2);
+  pwm = 0;
+ }
+
+ pca9685Driver.setDutyCycle(chPwm, pwm);
 }
 
 function failSafe() {
@@ -650,10 +722,11 @@ function failSafe() {
  if(hard.PIGPIO) {
   for(let i = 0; i < hard.MOTEURS.length; i++)
    gpioMoteurs[i].servoWrite(map(0, -0x80, 0x80, hard.MOTEURS[i].PWMMIN, hard.MOTEURS[i].PWMMAX));
- } else {
-  for(let i = 0; i < hard.MOTEURS.length; i++) {
-   // TODO write 0 velocity to motor controller
-  }
+ }
+
+ if(hard.PCA9685) {
+  for(let i = 0; i < hard.MOTEURS.length; i++)
+   pca9685MotorDrive(i, 0);
  }
 }
 
@@ -665,12 +738,14 @@ setInterval(function() {
 
  if(latencePredictive < LATENCEFINALARME && alarmeLatence) {
   trace("Latence de " + latencePredictive + " ms, retour au débit vidéo configuré");
-  //exec("v4l2-ctl", V4L2 + " -c video_bitrate=" + confDynamique.BITRATE, function(code) { });
+  // exec("v4l2-ctl", V4L2 + " -c video_bitrate=" + confDynamique.BITRATE, function(code) {
+  // });
   alarmeLatence = false;
  } else if(latencePredictive > LATENCEDEBUTALARME && !alarmeLatence) {
   failSafe();
   trace("Latence de " + latencePredictive + " ms, passage en débit vidéo réduit");
-  //exec("v4l2-ctl", V4L2 + " -c video_bitrate=" + BITRATEVIDEOFAIBLE, function(code) { });
+  // exec("v4l2-ctl", V4L2 + " -c video_bitrate=" + BITRATEVIDEOFAIBLE, function(code) {
+  // });
   alarmeLatence = true;
  }
 }, TXRATE);
