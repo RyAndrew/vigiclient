@@ -314,8 +314,23 @@ function dodo() {
  for(let i = 0; i < 8; i++)
   setGpio(i, hard.INTERRUPTEURS[i].INV);
 
- sigterm("Diffusion", PROCESSDIFFUSION, function(code) {
- });
+console.log('sleeping - kill video');
+
+if(videoProcess !== false){
+
+	console.log('killing video pid '+videoProcess.pid);
+
+
+ 	EXEC("pkill -TERM -P " + videoProcess.pid);
+	//sigterm("video", videoProcess.pid, function(){});
+	//process.kill(-1 * videoProcess.pid);//, 'SIGINT'
+	//videoProcess.kill('SIGINT');
+
+	videoProcess=false;
+}
+
+ //sigterm("Diffusion", PROCESSDIFFUSION, function(code) {
+ //});
 
  sigterm("DiffAudio", PROCESSDIFFAUDIO, function(code) {
  });
@@ -359,13 +374,17 @@ function confDynamiqueVideo() {
  // });
 }
 
+let videoProcess = false;
+
 function diffusion() {
  trace("Démarrage du flux de diffusion vidéo H.264");
 
- exec("Diffusion", cmdDiffusion, function(code) {
- 	console.log('video recording!');	
+ 	console.log('start video detach!');	
  	console.log(cmdDiffusion);
-  trace("Arrêt du flux de diffusion vidéo H.264");
+ 
+ videoProcess = EXEC(cmdDiffusion, {detached: true}, function(error){
+ 	console.log('video process done!');
+ 	videoProcess = false;
  });
 }
 
